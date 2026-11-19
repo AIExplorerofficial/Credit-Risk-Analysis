@@ -1,0 +1,253 @@
+# config.yaml — CreditView model configuration
+# All business assumptions are documented here (see assumptions_register.md)
+
+project:
+  name: CreditView
+  version: "1.0.0"
+  description: "Notebook-backed credit-risk research workspace"
+
+paths:
+  raw_data: null
+  processed_dir: notebook_runtime/data/processed
+  loans_parquet: notebook_runtime/data/processed/loans_36m.parquet
+  train_parquet: notebook_runtime/data/processed/train.parquet
+  calibration_parquet: notebook_runtime/data/processed/calibration.parquet
+  test_parquet: notebook_runtime/data/processed/test_oot.parquet
+  early_stop_parquet: notebook_runtime/data/processed/early_stop.parquet
+  model_dir: notebook_runtime/models
+  reports_dir: notebook_runtime/reports
+
+target:
+  column: default          # 1 = Charged Off, 0 = Fully Paid
+  positive_label: 1
+
+scope:
+  term_months: 36
+  loan_statuses: ["Fully Paid", "Charged Off"]
+
+splits:
+  train_years: [2007, 2008, 2009, 2010, 2011, 2012, 2013]
+  # Early-stop holdout: last 6 months of train years (Jul–Dec 2013).
+  # This keeps 2014 entirely unseen until calibration.
+  early_stop_months: 6     # last N months of the final train year → early-stop set
+  calibration_years: [2014]  # used for Platt scaling, conformal calibration, threshold selection
+  # NOTE: 2014 is reused for all three steps. Trade-off documented in model card.
+  test_years: [2015]       # out-of-time reporting only; never used for fitting or selection
+
+features:
+  numeric:
+    - loan_amnt
+    - annual_inc
+    - dti
+    - emp_length           # parsed to float; "10+ years" → 10, "< 1 year" → 0, missing → 0
+    - fico_avg             # engineered: (fico_range_low + fico_range_high) / 2
+    - open_acc
+    - pub_rec
+    - revol_bal
+    - revol_util
+    - total_acc
+    - delinq_2yrs
+    - inq_last_6mths
+    - mort_acc             # kept if missingness is not a year proxy (see audit below)
+    - credit_history_years # engineered: (issue_d - earliest_cr_line).days / 365.25
+  categorical:
+    - home_ownership       # OHE; keep RENT, OWN, MORTGAGE, OTHER; map rest → OTHER
+    - purpose              # OHE; top-N kept, rest → OTHER
+    - application_type     # OHE; kept only if not near-constant in train (see audit below)
+  fairness_only:           # used in reports, never passed to model
+    - addr_state
+
+  # --- Feature audits required before training (D) ---
+  # mort_acc_audit:
+  #   Run: df_train.groupby(issue_year)['mort_acc'].isna().mean()
+  #   If missingness rate is monotone with year → mort_acc is a year proxy → DROP it.
+  #   If not monotone → keep mort_acc with a binary missing-indicator feature `mort_acc_missing`.
+  #   Decision recorded in metadata.json['mort_acc_decision'].
+  # application_type_audit:
+  #   Run: df_train['application_type'].value_counts(normalize=True)
+  #   If dominant category > 98% → near-constant → DROP application_type.
+  #   Decision recorded in metadata.json['application_type_decision'].
+  # issue_d_guard:
+  #   Assert 'issue_d' and 'issue_year' are NEVER in the feature matrix.
+
+  purpose_top_n: 10
+  missing_policy:
+    emp_length: 0.0
+    mort_acc: 0.0          # only used if mort_acc kept after audit
+    revol_util: median
+    dti: median
+    annual_inc: median
+    pub_rec: 0.0
+    delinq_2yrs: 0.0
+    inq_last_6mths: 0.0
+    open_acc: median
+    total_acc: median
+
+leakage_banned_columns:
+  # int_rate and total_pymnt are LOADED into loans_36m.parquet for eval use
+  # but are EXCLUDED from the feature matrix. Leakage test asserts absence from X_*.
+  - int_rate
+  - grade
+  - sub_grade
+  - installment
+  - out_prncp
+  - out_prncp_inv
+  - total_pymnt
+  - total_pymnt_inv
+  - total_rec_prncp
+  - total_rec_int
+  - total_rec_late_fee
+  - recoveries
+  - collection_recovery_fee
+  - last_pymnt_d
+  - last_pymnt_amnt
+  - next_pymnt_d
+  - last_credit_pull_d
+  - loan_status
+  - issue_d               # temporal identifier — must never be a model feature
+  - issue_year            # derived from issue_d — same guard
+
+modeling:
+  random_seed: 42         # applied everywhere; never hardcode in src files
+  logistic_regression:
+    C: 0.1
+    max_iter: 1000
+    solver: lbfgs
+    class_weight: balanced
+  lightgbm:
+    n_estimators: 1000
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    min_child_samples: 50
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    class_weight: balanced
+    n_jobs: -1
+    verbose: -1
+    # Early stopping uses last 6 months of train years as validation set (not 2014)
+    # callbacks=[lgb.early_stopping(50), lgb.log_evaluation(100)] passed to .fit()
+  tuning:
+    method: none           # set to optuna_tpe to enable; skip for time-constrained runs
+    n_trials: 50
+    cv_strategy: expanding_window
+    n_splits: 3
+
+calibration:
+  method: sigmoid
+  # API: CalibratedClassifierCV(FrozenEstimator(lgbm_model), method="sigmoid").fit(X_cal_A, y_cal_A)
+  # 2014 is split randomly (seed: random_state) into cal_A (50%) and cal_B (50%).
+  # cal_A: Platt sigmoid calibration only.
+  # cal_B: conformal conformalize() + alpha/band_halfwidth selection.
+  # 2015 is reporting only; never used for calibration, conformal fitting, or alpha selection.
+  # Trade-off: conformal nonconformity scores estimated on cal_B → coverage valid on cal_B; 2015 is independent check.
+  # Noted in model card.
+
+thresholds:
+  default: 0.5
+  operational: null        # filled by threshold.py
+
+profit_model:
+  min_roi: 0.08  
+  # assumed_apr: computed at train time from df_train['int_rate'].mean() / 100.
+  # Written to metadata.json and to this key by simulator.py.
+  # Loader raises ValueError if null at serving time.
+  assumed_apr: null        # DO NOT set manually; filled by simulator.py
+  loan_term_years: 3
+  lgd: 0.80               # Loss Given Default; industry proxy; used only by simulator
+  # Formula used WHERE:
+  #   EVAL (threshold selection, profit reporting):
+  #     profit_i = total_pymnt_i - loan_amnt_i  (realized net cash per approved row)
+  #     total_pymnt and loan_amnt come from the parquet; never model features.
+  #   SERVING / SIMULATOR:
+  #     expected_profit ≈ (1 - p_default) * assumed_apr * loan_amnt * term_years
+  #                      - p_default * lgd * loan_amnt
+  #     assumed_apr is the flat mean; labelled "illustrative" in UI.
+  sweep_step: 0.01
+  sweep_range: [0.05, 0.95]
+
+three_way_decision:
+
+  approve_label: "Approve"
+  reject_label: "Reject"
+  refer_label: "Refer"
+  # Precedence:
+  # (1) OOS rules → Refer(out-of-support)
+  # (2) conformal set contains BOTH classes AND p_default is in the band
+  #     [threshold - band_halfwidth, threshold + band_halfwidth] → Refer(ambiguous)
+  #     band_halfwidth chosen on cal_B after empirical sweep
+  # (3) p_default < threshold → Approve; else → Reject
+  oos_rules:
+    fico_min: 660
+    dti_max: 100.0
+    annual_inc_min: 1000.0
+    loan_amnt_max: 40000.0
+  conformal:
+    alpha_sweep: [0.05, 0.10, 0.15, 0.20]
+    alpha_operational: 0.10
+    band_halfwidth: 0.02
+        # filled after empirical sweep; chosen on cal_B; used in decide()
+
+shap:
+  background_sample_n: 200
+  top_k_reasons: 3
+
+verifier:
+  number_tolerance: 0.01
+  allow_list_source: shap
+  fallback: template
+
+recourse:
+  actionable_features:
+    - loan_amnt
+    - revol_bal
+  grid:
+    loan_amnt_steps: [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
+    revol_bal_steps: [500, 1000, 2000, 3000, 5000, 7500, 10000]
+  # Full joint grid: 8 × 7 = 56 candidates
+  objective: min_l1_distance
+  no_recourse_response: "No feasible recourse found within search grid."
+
+drift:
+  psi_threshold: 0.2
+  ks_threshold: 0.1
+  score_psi_bins: 10
+  output_format: html
+
+fairness:
+  proxy_attributes:
+    - addr_state
+    - income_band
+    - purpose
+  approval_rate_flag_threshold: 0.20
+  default_rate_flag_threshold: 0.10
+  fpr_fnr_flag_threshold: 0.15
+  disclaimer: >
+    These are proxy attributes only. No protected characteristics (race, gender,
+    religion, national origin) are present in LendingClub public data. Results
+    reflect correlations with loan purpose, geography, and income, not direct
+    demographic analysis.
+
+llm_parser:
+  enabled: false
+  provider: hf_inference
+  model: mistralai/Mistral-7B-Instruct-v0.3
+  timeout_s: 10
+  fallback: form
+  # Token from HF_TOKEN env var; if unset, LLM is skipped regardless of enabled flag.
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  model_version_header: X-Model-Version
+
+simulator:
+  pricing_disclaimer: >
+    Monthly payment shown is ILLUSTRATIVE ONLY, computed from the assumed APR
+    using a standard amortisation formula. It is NOT a loan offer,
+    NOT the actual LendingClub rate, and NOT a model output.
+  payment_formula: annuity   # M = P * r(1+r)^n / ((1+r)^n - 1)
+  # assumed_monthly_rate = assumed_apr / 12; loaded at runtime from metadata.json
+  # config_loader raises ValueError if assumed_apr is null

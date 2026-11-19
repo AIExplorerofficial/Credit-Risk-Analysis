@@ -1,0 +1,135 @@
+{
+  "audit_mort_acc": {
+    "decision": "drop",
+    "missing_rate_by_year": {
+      "2007": 1.0,
+      "2008": 1.0,
+      "2009": 1.0,
+      "2010": 1.0,
+      "2011": 1.0,
+      "2012": 0.1386,
+      "2013": 0.0
+    },
+    "spread": 1.0,
+    "monotone": true
+  },
+  "audit_application_type": {
+    "decision": "drop",
+    "top_share": 1.0,
+    "shares": {
+      "Individual": 1.0
+    }
+  },
+  "split_sizes": {
+    "train": 113690,
+    "early_stop": 59298,
+    "cal": 162570,
+    "test": 283026
+  },
+  "split_default_rates": {
+    "train": 0.1263,
+    "early_stop": 0.1205,
+    "cal": 0.1373,
+    "test": 0.1489
+  },
+  "feature_columns": [
+    "num_med__loan_amnt",
+    "num_med__annual_inc",
+    "num_med__dti",
+    "num_med__fico_avg",
+    "num_med__open_acc",
+    "num_med__revol_bal",
+    "num_med__revol_util",
+    "num_med__total_acc",
+    "num_med__credit_history_years",
+    "num_zero__emp_length",
+    "num_zero__pub_rec",
+    "num_zero__delinq_2yrs",
+    "num_zero__inq_last_6mths",
+    "cat__home_ownership_MORTGAGE",
+    "cat__home_ownership_OTHER",
+    "cat__home_ownership_OWN",
+    "cat__home_ownership_RENT",
+    "cat__purpose_car",
+    "cat__purpose_credit_card",
+    "cat__purpose_debt_consolidation",
+    "cat__purpose_home_improvement",
+    "cat__purpose_major_purchase",
+    "cat__purpose_medical",
+    "cat__purpose_moving",
+    "cat__purpose_other",
+    "cat__purpose_small_business",
+    "cat__purpose_wedding",
+    "cat__purpose_infrequent_sklearn"
+  ],
+  "random_seed": 42,
+  "lgbm_best_iteration": 124,
+  "calibration_method": "sigmoid",
+  "threshold": 0.23,
+  "min_roi": 0.08,
+  "alpha_operational": 0.1,
+  "confidence_level": 0.9,
+  "band_halfwidth": 0.02,
+  "assumed_apr": 0.12543567596094646,
+  "oos_rules": {
+    "fico_min": 660,
+    "dti_max": 100.0,
+    "annual_inc_min": 1000.0,
+    "loan_amnt_max": 40000.0
+  },
+  "report_2015": {
+    "coverage": 0.8895,
+    "both_class_share": 0.1441,
+    "approve_share": 0.861,
+    "refer_share": 0.0912,
+    "reject_share": 0.0479,
+    "auc_calibrated": 0.6552
+  },
+  "lr_oot_auc": 0.6513,
+  "lgbm_oot_auc": 0.6552,
+  "lgbm_cal_auc": 0.6529,
+  "calibrated_oot_auc": 0.6552,
+  "decision_threshold": 0.23,
+  "conformal_alpha_operational": 0.1,
+  "profit_at_threshold_oot": {
+    "raw_profit": 229009782.87,
+    "adj_profit": -38414181.13,
+    "approved_count": 258864,
+    "approved_share": 0.9146
+  },
+  "profit_at_0_5_oot": {
+    "raw_profit": 237433102.12,
+    "adj_profit": -52510961.88,
+    "approved_count": 283026,
+    "approved_share": 1.0
+  },
+  "profit_at_threshold_cal": {
+    "raw_profit": 86502605.84,
+    "adj_profit": 11568709.84,
+    "approved_count": 73791,
+    "approved_share": 0.9078
+  },
+  "model_comparison_oot": {
+    "lr_baseline": {
+      "roc_auc": 0.6513,
+      "pr_auc": 0.2318,
+      "brier": 0.2398,
+      "log_loss": 0.6709,
+      "ks": 0.22
+    },
+    "lightgbm_base": {
+      "roc_auc": 0.6552,
+      "pr_auc": 0.2349,
+      "brier": 0.2271,
+      "log_loss": 0.6423,
+      "ks": 0.2255
+    },
+    "lightgbm_calibrated": {
+      "roc_auc": 0.6552,
+      "pr_auc": 0.2349,
+      "brier": 0.1221,
+      "log_loss": 0.402,
+      "ks": 0.2255
+    }
+  }
+}
