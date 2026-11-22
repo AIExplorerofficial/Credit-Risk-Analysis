@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -147,7 +147,10 @@ def policy_evaluate(request: BoundaryAnalysisRequest):
 
 @app.get("/api/governance")
 def governance():
-    return analytics.governance_data()
+    # Avoid FastAPI's recursive jsonable_encoder copy of the large historical
+    # ROC/precision-recall arrays. JSONResponse serializes the same payload
+    # directly, preserving the public response structure and values.
+    return JSONResponse(content=analytics.governance_data())
 
 
 @app.get("/api/calibration")

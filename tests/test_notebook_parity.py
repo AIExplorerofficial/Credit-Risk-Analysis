@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from backend.analytics import _loan_column_names, _read_loans_rows
 from creditview.notebook_service import CreditDecisionService
 from creditview.schemas import LoanApplication
 from src.conformal import get_prediction_set
@@ -12,15 +13,10 @@ from src.feature_engineering import engineer_raw_features
 from src.threshold import compute_profit_per_threshold, select_optimal_threshold
 
 
-def _notebook_data():
+def _notebook_data(*roles):
     service = CreditDecisionService.get_instance()
-    base = service.cfg.paths.processed_dir
-    return service, {
-        "loans": pd.read_parquet(f"{base}/loans_36m.parquet"),
-        "train": pd.read_parquet(service.cfg.paths.train_parquet),
-        "cal": pd.read_parquet(service.cfg.paths.calibration_parquet),
-        "test": pd.read_parquet(service.cfg.paths.test_parquet),
-    }
+    paths = {"cal": service.cfg.paths.calibration_parquet, "test": service.cfg.paths.test_parquet}
+    return service, {role: pd.read_parquet(paths[role]) for role in roles}
 
 
 def _application(raw_row: pd.Series) -> LoanApplication:
@@ -40,15 +36,16 @@ def _application(raw_row: pd.Series) -> LoanApplication:
 
 
 def test_notebook_preprocessing_and_inference_match_real_calibration_rows():
-    service, data = _notebook_data()
+    service, data = _notebook_data("cal")
     target = service.cfg.target.column
     _, cal_b = train_test_split(
         data["cal"], test_size=0.5, stratify=data["cal"][target],
         random_state=int(service.cfg.modeling.random_seed),
     )
-    feature_rows = data["loans"].loc[cal_b.index]
-    valid = feature_rows.dropna(subset=["annual_inc", "dti", "revol_util", "home_ownership", "purpose"])
-    selected = valid.head(5)
+    candidate_columns = ["annual_inc", "dti", "revol_util", "home_ownership", "purpose"]
+    candidates = _read_loans_rows(cal_b.index, candidate_columns)
+    valid_indices = candidates.dropna(subset=candidate_columns).index[:5]
+    selected = _read_loans_rows(valid_indices, list(_loan_column_names()))
     assert len(selected) == 5
 
     raw_transform = service.preprocessor.transform(engineer_raw_features(selected))
@@ -64,13 +61,13 @@ def test_notebook_preprocessing_and_inference_match_real_calibration_rows():
 
 
 def test_notebook_threshold_is_selected_only_on_cal_b():
-    service, data = _notebook_data()
+    service, data = _notebook_data("cal")
     target = service.cfg.target.column
     _, cal_b = train_test_split(
         data["cal"], test_size=0.5, stratify=data["cal"][target],
         random_state=int(service.cfg.modeling.random_seed),
     )
-    raw = data["loans"].loc[cal_b.index]
+    raw = _read_loans_rows(cal_b.index, ["loan_amnt", "total_pymnt"])
     p = service.lgbm_calibrated.predict_proba(cal_b[service.feature_columns])[:, 1]
     cfg = service.cfg.profit_model
     sweep = compute_profit_per_threshold(
@@ -81,7 +78,7 @@ def test_notebook_threshold_is_selected_only_on_cal_b():
 
 
 def test_notebook_2015_conformal_coverage_is_reproduced_as_report_only():
-    service, data = _notebook_data()
+    service, data = _notebook_data("test")
     test = data["test"]
     prediction_sets = get_prediction_set(
         service.conformal_model, test[service.feature_columns]

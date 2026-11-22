@@ -1,0 +1,180 @@
+{
+  "source": "notebooks/02_training.ipynb frozen train split and loans_36m.parquet",
+  "target": "default",
+  "feature_columns": [
+    "num_med__loan_amnt",
+    "num_med__annual_inc",
+    "num_med__dti",
+    "num_med__fico_avg",
+    "num_med__open_acc",
+    "num_med__revol_bal",
+    "num_med__revol_util",
+    "num_med__total_acc",
+    "num_med__credit_history_years",
+    "num_zero__emp_length",
+    "num_zero__pub_rec",
+    "num_zero__delinq_2yrs",
+    "num_zero__inq_last_6mths",
+    "cat__home_ownership_MORTGAGE",
+    "cat__home_ownership_OTHER",
+    "cat__home_ownership_OWN",
+    "cat__home_ownership_RENT",
+    "cat__purpose_car",
+    "cat__purpose_credit_card",
+    "cat__purpose_debt_consolidation",
+    "cat__purpose_home_improvement",
+    "cat__purpose_major_purchase",
+    "cat__purpose_medical",
+    "cat__purpose_moving",
+    "cat__purpose_other",
+    "cat__purpose_small_business",
+    "cat__purpose_wedding",
+    "cat__purpose_infrequent_sklearn"
+  ],
+  "training_rows": 113690,
+  "seed": 42,
+  "shap_background_sample_n": 200,
+  "shap_background_rows": 200,
+  "support_numeric": {
+    "loan_amnt": {
+      "min": 500.0,
+      "max": 35000.0,
+      "typical_min": -7312.5,
+      "typical_max": 28387.5
+    },
+    "annual_inc": {
+      "min": 4000.0,
+      "max": 7141778.0,
+      "typical_min": -22000.0,
+      "typical_max": 146000.0
+    },
+    "dti": {
+      "min": 0.0,
+      "max": 34.99,
+      "typical_min": -6.675000000000001,
+      "typical_max": 37.845
+    },
+    "open_acc": {
+      "min": 0.0,
+      "max": 52.0,
+      "typical_min": -2.0,
+      "typical_max": 22.0
+    },
+    "pub_rec": {
+      "min": 0.0,
+      "max": 54.0,
+      "typical_min": 0.0,
+      "typical_max": 0.0
+    },
+    "revol_bal": {
+      "min": 0.0,
+      "max": 2568995.0,
+      "typical_min": -13019.0,
+      "typical_max": 37245.0
+    },
+    "revol_util": {
+      "min": 0.0,
+      "max": 122.5,
+      "typical_min": -20.050000000000004,
+      "typical_max": 133.15
+    },
+    "total_acc": {
+      "min": 2.0,
+      "max": 91.0,
+      "typical_min": -6.0,
+      "typical_max": 50.0
+    },
+    "delinq_2yrs": {
+      "min": 0.0,
+      "max": 29.0,
+      "typical_min": 0.0,
+      "typical_max": 0.0
+    },
+    "inq_last_6mths": {
+      "min": 0.0,
+      "max": 8.0,
+      "typical_min": -1.5,
+      "typical_max": 2.5
+    },
+    "mort_acc": {
+      "min": 0.0,
+      "max": 29.0,
+      "typical_min": -4.5,
+      "typical_max": 7.5
+    },
+    "emp_length": {
+      "min": 0.0,
+      "max": 10.0,
+      "typical_min": -10.0,
+      "typical_max": 22.0
+    },
+    "fico_avg": {
+      "min": 627.0,
+      "max": 847.5,
+      "typical_min": 609.5,
+      "typical_max": 789.5
+    },
+    "credit_history_years": {
+      "min": 2.9979466119096507,
+      "max": 65.41273100616016,
+      "typical_min": -2.5010266940451746,
+      "typical_max": 30.167008898015062
+    },
+    "mort_acc_missing": {
+      "min": 0.0,
+      "max": 1.0,
+      "typical_min": -1.5,
+      "typical_max": 2.5
+    }
+  },
+  "support_categories": {
+    "home_ownership": [
+      "MORTGAGE",
+      "OTHER",
+      "OWN",
+      "RENT"
+    ],
+    "purpose": [
+      "car",
+      "credit_card",
+      "debt_consolidation",
+      "educational",
+      "home_improvement",
+      "house",
+      "major_purchase",
+      "medical",
+      "moving",
+      "other",
+      "renewable_energy",
+      "small_business",
+      "vacation",
+      "wedding"
+    ]
+  },
+  "data_categories": {
+    "home_ownership": [
+      "ANY",
+      "MORTGAGE",
+      "NONE",
+      "OTHER",
+      "OWN",
+      "RENT"
+    ],
+    "purpose": [
+      "car",
+      "credit_card",
+      "debt_consolidation",
+      "educational",
+      "home_improvement",
+      "house",
+      "major_purchase",
+      "medical",
+      "moving",
+      "other",
+      "renewable_energy",
+      "small_business",
+      "vacation",
+      "wedding"
+    ]
+  }
+}

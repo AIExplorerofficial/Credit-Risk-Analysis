@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import threading
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as parquet
 
 from creditview.schemas import (
     DecisionResponse,
@@ -43,7 +45,7 @@ class CreditDecisionService:
         model_dir = _NOTEBOOK_ROOT / "models"
         self.metadata = json.loads((model_dir / "metadata.json").read_text(encoding="utf-8"))
         self.preprocessor = joblib.load(model_dir / "preprocessor.pkl")
-        self.lr_baseline = joblib.load(model_dir / "lr_baseline.pkl")
+        self._lr_baseline = None
         self.lgbm_base = joblib.load(model_dir / "lgbm.pkl")
         self.lgbm_calibrated = joblib.load(model_dir / "lgbm_calibrated.pkl")
         self.conformal_model = joblib.load(model_dir / "lgbm_conformal.pkl")
@@ -56,46 +58,53 @@ class CreditDecisionService:
             raise RuntimeError("Notebook target mapping changed: expected default class 1")
 
         self.feature_columns = list(self.metadata["feature_columns"])
-        train = pd.read_parquet(self.cfg.paths.train_parquet)
-        train_features = train.drop(columns=[self.cfg.target.column])
-        if list(train_features.columns) != self.feature_columns:
+        train_schema_names = parquet.read_schema(self.cfg.paths.train_parquet).names
+        expected_train_columns = self.feature_columns + [str(self.cfg.target.column)]
+        if train_schema_names[:len(expected_train_columns)] != expected_train_columns:
             raise RuntimeError("Notebook training split feature order does not match notebook model metadata")
         transformed_names = list(self.preprocessor.get_feature_names_out())
         if transformed_names != self.feature_columns:
             raise RuntimeError("Notebook preprocessor feature order does not match notebook model metadata")
 
-        # Support summaries use only raw rows corresponding to the notebook's training split.
-        # Tukey fences (Q1 - 1.5*IQR, Q3 + 1.5*IQR) identify unusual observations;
-        # observed min/max identify extrapolation beyond any training example.
-        loans = pd.read_parquet(self.cfg.paths.loans_parquet)
-        training_raw = engineer_raw_features(loans.loc[train.index])
-        self.support_numeric: dict[str, dict[str, float]] = {}
-        for name in training_raw.select_dtypes(include=[np.number]).columns:
-            values = pd.to_numeric(training_raw[name], errors="coerce").dropna()
-            if not len(values):
-                continue
-            q1, q3 = values.quantile([0.25, 0.75]).tolist()
-            iqr = q3 - q1
-            self.support_numeric[name] = {
-                "min": float(values.min()), "max": float(values.max()),
-                "typical_min": float(q1 - 1.5 * iqr), "typical_max": float(q3 + 1.5 * iqr),
-            }
-        self.support_categories = {
-            name: set(training_raw[name].dropna().astype(str).unique())
-            for name in ("home_ownership", "purpose")
-        }
+        summary_path = _NOTEBOOK_ROOT / "memory" / "support_summary.json"
+        background_path = _NOTEBOOK_ROOT / "memory" / "shap_background.parquet"
+        manifest = json.loads((_NOTEBOOK_ROOT / "artifact_checksums.json").read_text(encoding="utf-8"))
+        for relative, path in (("memory/support_summary.json", summary_path),
+                               ("memory/shap_background.parquet", background_path)):
+            expected = manifest.get(relative)
+            digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            if expected is None or digest != expected:
+                raise RuntimeError(f"Notebook-derived runtime artifact integrity check failed: {relative}")
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        if summary.get("feature_columns") != self.feature_columns:
+            raise RuntimeError("Precomputed notebook summary feature order does not match model metadata")
+        if summary.get("target") != str(self.cfg.target.column):
+            raise RuntimeError("Precomputed notebook summary target does not match active configuration")
+        if summary.get("seed") != int(self.cfg.modeling.random_seed):
+            raise RuntimeError("Precomputed SHAP background seed does not match active configuration")
+        background = pd.read_parquet(background_path)
+        if list(background.columns) != self.feature_columns:
+            raise RuntimeError("Precomputed SHAP background feature order does not match model metadata")
+        if len(background) != int(self.cfg.shap.background_sample_n):
+            raise RuntimeError("Precomputed SHAP background sample size does not match active configuration")
+        if len(background) != int(summary.get("shap_background_rows", -1)):
+            raise RuntimeError("Precomputed SHAP background row count does not match its summary")
 
-        seed = int(self.cfg.modeling.random_seed)
-        background_size = int(self.cfg.shap.background_sample_n)
-        background = train_features.sample(min(background_size, len(train_features)), random_state=seed)
+        self.support_numeric = summary["support_numeric"]
+        self.support_categories = {
+            name: set(values) for name, values in summary["support_categories"].items()
+        }
+        self.dataset_categories = summary["data_categories"]
+
         # The notebook uses an observed training sample as its SHAP background.
         self.explainer = build_tree_explainer(self.lgbm_base, background)
+        del background
         self.threshold = float(self.metadata["threshold"])
         self.band_halfwidth = float(self.metadata["band_halfwidth"])
         self.approve_below = self.threshold - self.band_halfwidth
         self.reject_above = self.threshold + self.band_halfwidth
         self.oos_rules = self.cfg.three_way_decision.oos_rules
-        self.model_version = "notebook-02-training-seed-" + str(seed)
+        self.model_version = "notebook-02-training-seed-" + str(int(self.cfg.modeling.random_seed))
 
     @classmethod
     def get_instance(cls, cfg: Any = None) -> "CreditDecisionService":
@@ -104,6 +113,14 @@ class CreditDecisionService:
             if cls._instance is None:
                 cls._instance = cls()
             return cls._instance
+
+    @property
+    def lr_baseline(self):
+        """Load the governance-only baseline model on first use, not at startup."""
+        with self.inference_lock:
+            if self._lr_baseline is None:
+                self._lr_baseline = joblib.load(_NOTEBOOK_ROOT / "models" / "lr_baseline.pkl")
+            return self._lr_baseline
 
     @staticmethod
     def _as_application(value: dict[str, Any] | LoanApplication) -> LoanApplication:

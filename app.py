@@ -3,6 +3,13 @@ from __future__ import annotations
 
 import os
 
+# Keep numerical-library worker pools small on memory-constrained web instances.
+# Set these before importing the model-serving stack so OpenMP/BLAS allocate
+# their runtime state with one worker. Explicit deployment values remain usable.
+for _thread_env in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                    "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_thread_env, "1")
+
 import uvicorn
 
 from backend.main import app

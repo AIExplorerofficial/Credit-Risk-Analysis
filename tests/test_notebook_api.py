@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import pytest
+import json
 import numpy as np
 import pandas as pd
 
 from backend.main import app, batch, dashboard, decide, examples, governance, health, thresholds, whatif
-from backend.analytics import _inputs
+from backend.analytics import _cal_b_indices, _load_cal_b, _load_split, _loan_column_names, _read_loans_rows
 from creditview.notebook_service import CreditDecisionService
 from creditview.schemas import LoanApplication, WhatIfRequest
 from src.conformal import decide as notebook_decide
@@ -18,15 +19,14 @@ from src.feature_engineering import engineer_raw_features
 def supported_policy_applications():
     """Find real cal_B observations for each saved in-support policy outcome."""
     service = CreditDecisionService.get_instance()
-    data = _inputs()
-    cal_b = data["cal_b"]
+    cal_b = _load_cal_b()
     with service.inference_lock:
         probabilities = service.lgbm_calibrated.predict_proba(cal_b[service.feature_columns])[:, 1]
         sets = get_prediction_set(service.conformal_model, cal_b[service.feature_columns])
     model_decisions, _ = notebook_decide(
         probabilities, sets, np.zeros(len(cal_b), dtype=bool), service.threshold, service.band_halfwidth
     )
-    loans = data["loans"].loc[cal_b.index]
+    loans = _read_loans_rows(cal_b.index, list(_loan_column_names()))
     fields = ("loan_amnt", "annual_inc", "dti", "fico_avg", "emp_length", "home_ownership", "purpose",
               "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc", "delinq_2yrs",
               "inq_last_6mths", "credit_history_years")
@@ -65,8 +65,8 @@ def test_examples_are_actual_2014_cal_b_observations():
     assert len(rows) == 3
     assert all(row["originated"].startswith("2014-") for row in rows)
     assert all(row["historical_outcome"] in {"Charged Off", "Fully Paid"} for row in rows)
-    indices = _inputs()["cal_b"].index
-    loans = _inputs()["loans"].loc[indices]
+    indices = _cal_b_indices()
+    loans = _read_loans_rows(indices, ["issue_d", "default"])
     actual = {(str(row.issue_d.date()), "Charged Off" if int(row.default) == 1 else "Fully Paid")
               for row in loans.itertuples()}
     assert all((row["originated"], row["historical_outcome"]) in actual for row in rows)
@@ -105,7 +105,7 @@ def test_single_whatif_and_batch_share_notebook_inference(actual_cal_b_applicati
 
 def test_dashboard_and_threshold_metrics_use_correct_notebook_roles():
     result = dashboard()
-    assert result["kpis"]["evaluated_loans"] == len(_inputs()["splits"]["test"])
+    assert result["kpis"]["evaluated_loans"] == len(_load_split("test"))
     assert result["policy"]["threshold"] == pytest.approx(0.23)
     assert result["kpis"]["conformal_coverage"] == pytest.approx(0.8895, abs=1e-4)
     assert result["kpis"]["conformal_coverage"] < result["kpis"]["coverage_target"]
@@ -116,7 +116,7 @@ def test_dashboard_and_threshold_metrics_use_correct_notebook_roles():
 
 
 def test_governance_metrics_are_computed_and_artifacts_match_prototype():
-    result = governance()
+    result = json.loads(governance().body)
     assert len(result["features"]) == 28
     assert result["apr_reference"]["matches_saved_notebook"] is True
     assert result["threshold_selection"]["matches_saved_notebook"] is True
