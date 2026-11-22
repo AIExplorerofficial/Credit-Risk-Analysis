@@ -87,19 +87,16 @@ def main() -> None:
         "support_categories": support_categories,
         "data_categories": data_categories,
     }
-    (output_dir / "support_summary.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    # Pin newline bytes so the checksum is identical on Windows and Linux.
+    with (output_dir / "support_summary.json").open("w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
     manifest_path = runtime / "artifact_checksums.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for relative in ("memory/support_summary.json", "memory/shap_background.parquet"):
         digest = hashlib.sha256((runtime / relative).read_bytes()).hexdigest()
         manifest[relative] = digest
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with manifest_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     print(f"Wrote exact support summary ({len(support_numeric)} numeric fields).")
     print(f"Wrote deterministic SHAP background: {len(background)} rows × {background.shape[1]} features.")
 
