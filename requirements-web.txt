@@ -1,0 +1,3 @@
+# Dependencies for the lightweight Render host. The visitor's browser runs inference.
+fastapi==0.163.1
+uvicorn==0.54.0

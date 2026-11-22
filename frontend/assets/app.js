@@ -16,21 +16,7 @@ const fmt = (value, digits = 1) => value == null || !Number.isFinite(Number(valu
 const pct = (value, digits = 1) => value == null || !Number.isFinite(Number(value)) ? "—" : `${(Number(value) * 100).toFixed(digits)}%`;
 const money = value => value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 async function api(path, options = {}) {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 45000);
-  let response;
-  try {
-    response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options, signal: controller.signal });
-  } catch (error) {
-    if (error.name === "AbortError") throw new Error("This request took too long. Check the connection and try again.");
-    throw new Error("CreditView could not reach the local service. Check that it is running and retry.");
-  } finally { window.clearTimeout(timeout); }
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try { const data = await response.json(); message = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data); } catch {}
-    throw new Error(message);
-  }
-  return response.json();
+  return window.CreditViewBrowser.request(path, options);
 }
 let activeOperations = 0;
 function busy(on) { activeOperations = Math.max(0, activeOperations + (on ? 1 : -1)); const active = activeOperations > 0; $("#loading").classList.toggle("hidden", !active); document.body.classList.toggle("request-active", active); }
@@ -41,7 +27,7 @@ function lockAction(button, action) {
     try { await action(event); } finally { button.disabled = false; }
   });
 }
-function transientError(error) { return /could not reach|too long|request failed \(5\d\d\)/i.test(error.message || ""); }
+function transientError(error) { return /could not reach|too long|request failed \(5\d\d\)|browser computation|notebook data|local computation/i.test(error.message || ""); }
 function addRetry(container, action) { const button=document.createElement("button");button.type="button";button.className="text-button retry-button";button.textContent="Retry";button.addEventListener("click",async()=>{button.disabled=true;try{await action();}finally{button.remove();}},{once:true});container.append(" ",button); }
 function notice(text, type = "info", retry = null) {
   const el = $("#notice"); el.replaceChildren(); el.dataset.state = type;
@@ -150,6 +136,7 @@ function renderDecisions(el, counts) {
 async function loadDashboard() {
   try {
     state.dashboard = await api("/api/dashboard"); const d = state.dashboard, k = d.kpis;
+    const runtimeStatus = $("#runtimeStatus"); runtimeStatus.classList.remove("bad"); runtimeStatus.innerHTML = "<i></i> Notebook data verified · computed in this browser";
     $("#dashboardScope").textContent = d.dataset;
     $("#kpis").innerHTML = [
       {label:"Evaluated loans",value:fmt(k.evaluated_loans,0),note:d.dataset,meaning:"Number of held-out 2015 records included here.",icon:"▤"},
@@ -162,7 +149,7 @@ async function loadDashboard() {
     $("#snapshotAuc").textContent=fmt(d.model.roc_auc,4);$("#snapshotBrier").textContent=fmt(d.model.brier_score,4);$("#snapshotPolicy").textContent=`${pct(d.policy.threshold,0)} ± ${pct(d.policy.band_halfwidth,0)}`;
     $("#boundaries").textContent=`Saved threshold ${pct(d.policy.threshold,0)} · referral band ±${pct(d.policy.band_halfwidth,0)} only when both outcomes remain plausible · 2015 conformal coverage ${pct(k.conformal_coverage,2)} (target ${pct(k.coverage_target,0)}). Coverage is the share of actual outcomes included in the model’s prediction sets.`;
     $("#integrityCount").textContent="Checksums are available on the governance page";
-  } catch(e) { notice(e.message,"error",loadDashboard);$("#dashboardScope").textContent="Dashboard data could not be loaded."; }
+  } catch(e) { const runtimeStatus = $("#runtimeStatus"); runtimeStatus.classList.add("bad"); runtimeStatus.innerHTML = "<i></i> Notebook data unavailable"; notice(e.message,"error",loadDashboard);$("#dashboardScope").textContent="Dashboard data could not be loaded."; }
 }
 async function loadExamples() {
   const data=await api(`/api/examples?limit=${state.meta.app_limits.historical_example_count}`);state.examples=data.examples;
@@ -171,12 +158,13 @@ async function loadExamples() {
 function applicantFromExample(index) { const ex=state.examples[Number(index)]; if(!ex) throw new Error("Choose a historical example first.");return ex; }
 function renderAssessmentResult(result, applicant, historic = null) {
   state.assessment={result,applicant}; const formalStatus=result.formal_status||result.decision; const indicative=result.indicative_recommendation||formalStatus; const tone=result.is_provisional?"refer":formalStatus.toLowerCase();
-  const factors=(result.top_factors||[]).map(f=>`<div class="factor"><div class="factor-head"><span>${escapeHtml(labels[f.feature]||f.feature.replaceAll("_"," "))}</span><span class="factor-tag ${f.impact==='supportive'?'supportive':''}">${f.impact==='supportive'?'Pulls this score lower':'Pulls this score higher'}</span></div><div class="factor-detail">${escapeHtml(f.explanation)}</div></div>`).join("")||`<p class="muted small">No feature contributions were available for this assessment.</p>`;
+  const hasFactors=Boolean(result.top_factors?.length);
+  const factors=(result.top_factors||[]).map(f=>`<div class="factor"><div class="factor-head"><span>${escapeHtml(labels[f.feature]||f.feature.replaceAll("_"," "))}</span><span class="factor-tag ${f.impact==='supportive'?'supportive':''}">${f.impact==='supportive'?'Pulls this score lower':'Pulls this score higher'}</span></div><div class="factor-detail">${escapeHtml(f.explanation)}</div></div>`).join("")||`<p class="muted small">No feature contributions were returned for this request.</p>`;
   const history = historic ? `<p class="result-disclaimer">Historical notebook cal_B record · ${escapeHtml(historic.originated)} · observed outcome: ${escapeHtml(historic.historical_outcome)}. This outcome is hindsight, not an input to the assessment.</p>` : "";
   const decisionMeaning=result.is_provisional?"The indicative outcome follows the saved model rule but does not replace the required human review.":{approve:"Estimated risk is below the saved notebook threshold. This is a model recommendation, not a lender’s offer.",refer:"The conformal model considers both outcomes plausible near the cutoff, so this case is referred for review.",reject:"Estimated risk is at or above the saved notebook threshold. This is a model recommendation, not a lender’s final decision."}[tone];
   const indicativePanel=`<div class="indicative-panel"><span>Indicative model recommendation</span><strong>${result.is_provisional?'INDICATIVE ':''}${escapeHtml(indicative.toUpperCase())}</strong><small>${result.is_provisional?'This is not the formal assessment and does not replace manual review.':'Matches the formal status under the existing supported-input decision policy.'}</small></div>`;
   const supportCard=result.is_provisional||result.support_warnings?.length?`<article class="card result-card support-warning"><h3>${result.is_provisional?'Why manual review is required':'Input values to review'}</h3><p>${escapeHtml(result.formal_explanation||'Some inputs are outside or unusual compared with the notebook training data.')}</p><ul>${(result.support_warnings||[]).map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>${result.is_provisional?'<p class="section-explainer">Historical cohort comparison is omitted because this estimate is outside model support.</p>':''}</article>`:"";
-  $("#assessmentResult").innerHTML=`<article class="result-hero ${tone}"><div class="result-top"><span class="result-label">FORMAL ASSESSMENT</span><span class="tag tag-dark">${result.is_provisional?'OUTSIDE MODEL SUPPORT':'WITHIN MODEL SUPPORT'}</span></div><div class="result-decision">${escapeHtml(formalStatus)}</div>${indicativePanel}<div class="result-prob">${pct(result.p_default,2)}</div><div class="result-desc">${result.is_provisional?'Estimated default risk · PROVISIONAL and potentially unreliable for this application.':'Estimated chance of default'} · saved decision threshold ${pct(result.decision_threshold,0)} · possible referral band ${pct(result.decision_threshold-result.band_halfwidth,0)}–${pct(result.decision_threshold+result.band_halfwidth,0)}. Referral applies within that band only when the conformal model includes both outcomes.</div><p class="decision-meaning">${escapeHtml(decisionMeaning||"No decision label was returned.")}</p></article>${supportCard}<article class="card result-card"><h3>What influenced this estimate?</h3><p class="section-explainer">These are SHAP contributions from the notebook’s base LightGBM in raw log-odds space. They are not a decomposition of the calibrated probability or causes of default.</p>${factors}<p class="result-disclaimer">${escapeHtml(result.full_explanation)}</p>${history}</article><div class="button-row"><button class="button secondary" id="printAssessment">Print / save report</button></div>`;
+  $("#assessmentResult").innerHTML=`<article class="result-hero ${tone}"><div class="result-top"><span class="result-label">FORMAL ASSESSMENT</span><span class="tag tag-dark">${result.is_provisional?'OUTSIDE MODEL SUPPORT':'WITHIN MODEL SUPPORT'}</span></div><div class="result-decision">${escapeHtml(formalStatus)}</div>${indicativePanel}<div class="result-prob">${pct(result.p_default,2)}</div><div class="result-desc">${result.is_provisional?'Estimated default risk · PROVISIONAL and potentially unreliable for this application.':'Estimated chance of default'} · saved decision threshold ${pct(result.decision_threshold,0)} · possible referral band ${pct(result.decision_threshold-result.band_halfwidth,0)}–${pct(result.decision_threshold+result.band_halfwidth,0)}. Referral applies within that band only when the conformal model includes both outcomes.</div><p class="decision-meaning">${escapeHtml(decisionMeaning||"No decision label was returned.")}</p></article>${supportCard}<article class="card result-card"><h3>${hasFactors?"What influenced this estimate?":"Model explanation"}</h3><p class="section-explainer">${hasFactors?"These are exact interventional SHAP contributions from the notebook’s base LightGBM in raw log-odds space, using its saved 200-row training background. They are not a decomposition of the calibrated probability or evidence of cause and effect.":"The prediction and recommendation were calculated in this browser using the saved notebook model."}</p>${factors}<p class="result-disclaimer">${escapeHtml(result.full_explanation)}</p>${history}</article><div class="button-row"><button class="button secondary" id="printAssessment">Print / save report</button></div>`;
   $("#printAssessment").addEventListener("click",()=>window.print());
   if (result.cohort_comparison && !result.is_provisional) {
     const refs = result.cohort_comparison;

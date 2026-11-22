@@ -1,4 +1,4 @@
-"""Run the local CreditView FastAPI application and static frontend."""
+"""Run the lightweight host for the browser-computed CreditView application."""
 from __future__ import annotations
 
 import os
@@ -12,7 +12,7 @@ for _thread_env in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"
 
 import uvicorn
 
-from backend.main import app
+from frontend_host import app
 
 
 def main() -> None:

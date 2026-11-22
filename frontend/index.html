@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f3ed"><title>CreditView · Credit risk workspace</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20261119-1">
+  <link rel="stylesheet" href="/assets/styles.css?v=20261122-3">
 </head>
 <body>
   <header class="topbar">
@@ -21,7 +21,7 @@
   <main class="shell">
     <div id="notice" class="notice hidden" role="status"></div>
     <section class="page active" id="page-dashboard">
-      <div class="page-heading"><div><div class="eyebrow">MODEL & PORTFOLIO</div><h1>Credit risk overview</h1><p id="dashboardScope" class="muted">Loading verified evaluation data…</p><p class="section-explainer">A look back at 2015 loans kept aside from model fitting and policy selection. These figures describe that historical group; they are not a forecast of future portfolio performance.</p></div><div class="heading-actions"><span class="status-pill"><i></i> Model artifacts loaded</span></div></div>
+      <div class="page-heading"><div><div class="eyebrow">MODEL & PORTFOLIO</div><h1>Credit risk overview</h1><p id="dashboardScope" class="muted">Loading verified evaluation data…</p><p class="section-explainer">A look back at 2015 loans kept aside from model fitting and policy selection. These figures describe that historical group; they are not a forecast of future portfolio performance.</p></div><div class="heading-actions"><span class="status-pill" id="runtimeStatus" role="status"><i></i> Verifying notebook data…</span></div></div>
       <div class="kpi-grid" id="kpis"></div>
       <div class="dashboard-grid">
         <article class="card chart-card"><div class="card-heading"><div><div class="eyebrow">FINAL OOT · MONTHLY</div><h2>Risk through the year</h2></div><span class="tag">Observed + model estimate</span></div><p class="section-explainer">Each point groups 2015 loans by month. The solid line is the share that later defaulted; the dashed line is the model’s average default estimate for those same loans. The gap shows where estimates and outcomes differed.</p><div id="trendChart" class="chart-wrap"></div><div class="chart-legend"><span><i class="legend-dot observed"></i>Observed defaults</span><span><i class="legend-dot gray"></i>Mean predicted risk</span></div></article>
@@ -57,8 +57,9 @@
       <article class="card limitations"><div class="eyebrow">HOW A RECOMMENDATION IS MADE</div><h2>Three checks, in order</h2><ol><li><strong>Check the training range.</strong> FICO below 660, debt-to-income above 100%, annual income below $1,000, or requested amount above $40,000 sends the case to Refer because it falls outside the notebook’s support limits.</li><li><strong>Check uncertainty near the cutoff.</strong> If the conformal model includes both outcomes and the estimated risk is within two percentage points of the 23% threshold, the result is Refer for review.</li><li><strong>Apply the saved risk threshold.</strong> Below 23% is labelled Approve; 23% or higher is labelled Reject, when neither referral check applies.</li></ol><p class="muted small">These are historical model recommendations, not lending decisions.</p></article>
       <article class="card limitations"><div class="eyebrow">SCOPE & LIMITATIONS</div><h2>What these results mean</h2><ul><li>The website loads the saved preprocessor, LightGBM, Platt calibrator, conformal model, metadata, and processed splits bundled with the authoritative notebook.</li><li>The target is historical loan default (Charged Off versus Fully Paid). Estimates may not generalize outside that population.</li><li>2014 cal_B is used for threshold selection and cohort analysis. The 2015 out-of-time set is read-only evaluation.</li><li>The notebook’s measured 2015 conformal coverage is 88.95%, below its 90% target. The website displays the observed result without adjustment.</li><li>The notebook does not calculate an applicant-specific payment. No payment estimate is shown.</li><li>Historical examples are actual observations from cal_B. What-if comparisons use only the two application records you enter.</li></ul></article>
     </section>
-    <footer class="app-footer"><span>CreditView <span id="footerVersion">· Local research workspace</span></span><span>Localhost only · Historical estimates, not a loan offer</span></footer>
+    <footer class="app-footer"><span>CreditView <span id="footerVersion">· Browser-computed workspace</span></span><span>Applicant data stays on this device · Historical estimates, not a loan offer</span></footer>
   </main>
   <div id="loading" class="loading-overlay hidden"><div class="spinner"></div><span>Scoring with the saved model…</span></div>
-  <script src="/assets/app.js?v=20261118-4" defer></script>
+  <script src="/assets/client-api.js?v=20261122-3" defer></script>
+  <script src="/assets/app.js?v=20261122-3" defer></script>
 </body></html>

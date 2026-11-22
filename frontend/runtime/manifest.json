@@ -1,0 +1,8 @@
+{
+  "source": "notebooks/02_training.ipynb frozen artifacts and processed splits",
+  "files": {
+    "governance.json.gz": "4f029ddac3d914de9b8f31c8f88f924c89ed67058b6528919a33c4fac2adde13",
+    "model.json": "8ee5cd11c1ac571eca11f95d84dae62db89c78def2f7c3f26510cb81a8e04c35",
+    "notebook-data.bin.gz": "d9cf5e8e619dbef313b057453cdf8b6bdf17de6c3b14169cb03db6577510bb91"
+  }
+}
